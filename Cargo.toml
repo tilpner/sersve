@@ -10,3 +10,7 @@ path = "src/sersve.rs"
 
 [dependencies]
 iron = "*"
+glob = "*"
+
+[dependencies.persistent]
+git = "https://github.com/iron/persistent"

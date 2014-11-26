@@ -2,7 +2,9 @@
 name = "sersve"
 version = "0.0.1"
 dependencies = [
+ "glob 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "iron 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "persistent 0.0.1 (git+https://github.com/iron/persistent)",
 ]
 
 [[package]]
@@ -26,6 +28,11 @@ dependencies = [
 [[package]]
 name = "gcc"
 version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "glob"
+version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -91,6 +98,15 @@ version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "pkg-config 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "persistent"
+version = "0.0.1"
+source = "git+https://github.com/iron/persistent#a201b8d3e1ef277108b0968c4f3d8eeecfff9444"
+dependencies = [
+ "iron 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plugin 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
