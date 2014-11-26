@@ -14,8 +14,6 @@ use std::io::fs::{ File, PathExtensions };
 use std::default::Default;
 use std::sync::Mutex;
 
-use error::Error;
-
 use getopts::{ optopt, optflag, getopts, usage, OptGroup };
 
 use serialize::json;
@@ -143,7 +141,7 @@ fn serve(req: &mut Request) -> IronResult<Response> {
     let root = {
         let o = req.get::<Read<OptCarrier, Mutex<Options>>>().unwrap();
         let mutex = o.lock();
-        mutex.root.clone().unwrap() //_or_else(|| os::getcwd().ok().unwrap())
+        mutex.root.clone().unwrap_or_else(|| os::getcwd().ok().unwrap())
     };
 
     let mut path = root.clone();
@@ -234,10 +232,6 @@ fn main() {
     chain.link(Read::<OptCarrier, Mutex<Options>>::both(options));
     match Iron::new(chain).listen((host[], port)) {
         Ok(_) => (),
-        Err(e) => println!("I'm sorry, I failed you. {}", if e.description().is_some() {
-            e.description().unwrap()[]
-        } else {
-            "And I don't even know why..."
-        })
+        Err(e) => println!("I'm sorry, I failed you. {}", e)
     }
 }
