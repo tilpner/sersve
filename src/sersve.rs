@@ -2,10 +2,10 @@
 
 extern crate getopts;
 extern crate serialize;
-extern crate glob;
 extern crate iron;
 extern crate persistent;
 extern crate error;
+extern crate regex;
 
 use std::{ str, os };
 use std::path::{ Path, GenericPath };
@@ -13,6 +13,8 @@ use std::io::{ fs, Reader };
 use std::io::fs::{ File, PathExtensions };
 use std::default::Default;
 use std::sync::Mutex;
+
+use regex::Regex;
 
 use getopts::{ optopt, optflag, getopts, usage, OptGroup };
 
@@ -39,7 +41,6 @@ struct Options {
     custom_css: Option<String>,
     filter: Option<String>,
     max_size: Option<u64>,
-    not_found: Option<String>
 }
 
 struct OptCarrier;
@@ -61,7 +62,7 @@ fn size_with_unit(mut size: u64) -> String {
     format!("{}.{} {}", size, frac, UNITS[index])
 }
 
-fn render(root: Path, dir: Path, files: Vec<Path>) -> String {
+fn render(root: Path, dir: Path, files: Vec<Path>, filter: Option<Regex>) -> String {
     fn render_item(url: Path, size: u64, name: &str) -> String {
         format!("<tr><td><a href=\"/{url}\">{name}</a></td><td>{size}</td></tr>\n",
         url = url.display(), size = size_with_unit(size), name = name)
@@ -78,7 +79,9 @@ fn render(root: Path, dir: Path, files: Vec<Path>) -> String {
         let relative = file.path_relative_from(&root).unwrap();
         let stat = file.stat().unwrap();
         let filename = file.filename_display().as_maybe_owned().into_string();
-        content.push_str(render_item(relative, stat.size, filename.clone()[])[]);
+        if filter.as_ref().map_or(true, |f| f.is_match(filename[])) {
+            content.push_str(render_item(relative, stat.size, filename.clone()[])[]);
+        }
     }
 
     format!("<!DOCTYPE html>
@@ -138,21 +141,33 @@ fn guess_text(data: &[u8]) -> bool {
 }
 
 fn serve(req: &mut Request) -> IronResult<Response> {
-    let root = {
+    let (root, filter_str, max_size) = {
         let o = req.get::<Read<OptCarrier, Mutex<Options>>>().unwrap();
         let mutex = o.lock();
-        mutex.root.clone().unwrap_or_else(|| os::getcwd().ok().unwrap())
+        (mutex.root.clone().unwrap_or_else(|| os::getcwd().ok().unwrap()),
+         mutex.filter.clone(),
+         mutex.max_size)
     };
 
     let mut path = root.clone();
     for part in req.url.path.iter() { path.push(part[]) }
     if !path.exists() { return html("Well, no... We don't have that today."); }
 
+    let filter = filter_str.and_then(|s| Regex::new(s[]).ok());
+
     if path.is_file() && root.is_ancestor_of(&path) {
+        let stat = path.stat();
+        if stat.as_ref().ok().is_some() && max_size.is_some() && stat.ok().unwrap().size > max_size.unwrap() {
+            return html("I'm afraid, I'm too lazy to serve the requested file. It's pretty big...")
+        }
         let content = match File::open(&path).read_to_end() {
             Ok(s) => s,
             Err(e) => return html(e.desc)
         };
+
+        if filter.as_ref().map_or(false, |f| !f.is_match(path.filename_str().unwrap())) {
+            return html("I don't think you're allowed to do this.");
+        }
         if guess_text(content[]) { plain(content[]) } else { binary(content[]) }
     } else {
         let mut content = match fs::readdir(&path) {
@@ -160,7 +175,7 @@ fn serve(req: &mut Request) -> IronResult<Response> {
             Err(e) => return html(e.desc)
         };
         content.sort_by(|a, b| a.filename_str().unwrap().cmp(b.filename_str().unwrap()));
-        html(render(root, path, content)[])
+        html(render(root, path, content, filter)[])
     }
 }
 
@@ -177,6 +192,8 @@ fn main() {
         optopt("a", "address", "the address to bind to", "HOST"),
         optopt("p", "port", "the port to serve", "PORT"),
         optopt("r", "root", "the uppermost directory to serve", "ROOT"),
+        optopt("f", "filter", "a regular expression to filter the filenames", "REGEX"),
+        optopt("s", "size", "the maximum size of a file that will be served", "BYTES"),
         optflag("h", "help", "print this help menu")
     ];
     let matches = match getopts(args.tail(), opts) {
@@ -217,6 +234,16 @@ fn main() {
             None => None,
             _ => panic!("Invalid configuration file. `root` field must be a string.")
         };
+        o.filter = match json.get("filter") {
+            Some(&Json::String(ref s)) => Some((*s).clone()),
+            None => None,
+            _ => panic!("Invalid configuration file. `filter` field must be a string.")
+        };
+        o.max_size = match json.get("size") {
+            Some(&Json::U64(u)) => Some(u),
+            None => None,
+            _ => panic!("Invalid configuration file. `size` field must be an unsigned integer.")
+        }
     });
 
     let (host, port) = {
@@ -224,6 +251,8 @@ fn main() {
         o.host = o.host.clone().or(matches.opt_str("a"));
         o.port = o.port.or(matches.opt_str("p").and_then(|p| str::from_str(p[])));
         o.root = o.root.clone().or(matches.opt_str("r").and_then(|p| Path::new_opt(p)));
+        o.filter = o.filter.clone().or(matches.opt_str("f"));
+        o.max_size = o.max_size.or(matches.opt_str("s").and_then(|s| str::from_str(s[])));
         (o.host.clone().unwrap_or("0.0.0.0".into_string()),
          o.port.clone().unwrap_or(8080))
     };
