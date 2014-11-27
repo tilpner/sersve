@@ -1,4 +1,4 @@
-#![feature(globs, slicing_syntax, if_let, unboxed_closures)]
+#![feature(phase, globs, slicing_syntax, if_let, unboxed_closures)]
 
 extern crate getopts;
 extern crate serialize;
@@ -6,13 +6,21 @@ extern crate iron;
 extern crate persistent;
 extern crate error;
 extern crate regex;
+extern crate "conduit-mime-types" as conduit_mime;
+extern crate mime;
+
+#[phase(plugin)]
+extern crate lazy_static;
 
 use std::{ str, os };
+use std::str::from_str;
 use std::path::{ Path, GenericPath };
 use std::io::{ fs, Reader };
 use std::io::fs::{ File, PathExtensions };
 use std::default::Default;
 use std::sync::Mutex;
+
+use conduit_mime::Types;
 
 use regex::Regex;
 
@@ -38,7 +46,6 @@ struct Options {
     host: Option<String>,
     port: Option<u16>,
     root: Option<Path>,
-    custom_css: Option<String>,
     filter: Option<String>,
     max_size: Option<u64>,
 }
@@ -48,6 +55,10 @@ impl Assoc<Mutex<Options>> for OptCarrier {}
 
 static UNITS: &'static [&'static str] = &["B", "kB", "MB", "GB", "TB"];
 const BRIEF: &'static str = "A minimal directory server, written in Rust with Iron.";
+
+lazy_static! {
+    static ref MIME: Types = Types::new().ok().unwrap();
+}
 
 fn size_with_unit(mut size: u64) -> String {
     let mut frac = 0;
@@ -168,7 +179,15 @@ fn serve(req: &mut Request) -> IronResult<Response> {
         if filter.as_ref().map_or(false, |f| !f.is_match(path.filename_str().unwrap())) {
             return html("I don't think you're allowed to do this.");
         }
-        if guess_text(content[]) { plain(content[]) } else { binary(content[]) }
+        let mime: Option<iron::mime::Mime> = path.extension_str()
+            .map_or(None, |e| MIME.get_mime_type(e))
+            .map_or(None, |m| from_str(m));
+        if mime.as_ref().is_some() {
+            plain(content[]).map(|r| r.set(ContentType((*mime.as_ref().unwrap()).clone())))
+        } else {
+            plain(content[])
+        }
+        //if guess_text(content[]) { plain(content[]) } else { binary(content[]) }
     } else {
         let mut content = match fs::readdir(&path) {
             Ok(s) => s,
