@@ -33,7 +33,6 @@ use iron::prelude::*;
 use iron::response::modifiers::*;
 use iron::status;
 use iron::mime::*;
-use iron::mime::SubLevel::Ext as SubExt;
 use iron::middleware::ChainBuilder;
 use iron::typemap::Assoc;
 
@@ -133,24 +132,6 @@ fn html<B: Bodyable>(content: B) -> IronResult<Response> {
     plain(content).map(|r| r.set(ContentType(Mime(Text, Html, Vec::new()))))
 }
 
-fn binary<B: Bodyable>(content: B) -> IronResult<Response> {
-    plain(content).map(
-        |r| r.set(ContentType(Mime(Application, SubExt("octet-stream".into_string()), Vec::new()))))
-}
-
-fn guess_text(data: &[u8]) -> bool {
-    let mut total = 0u;
-    let mut text = 0u;
-    for (c, _) in data.iter().zip(range(0u, 1000)) {
-        let c = *c as char;
-        if c.is_alphanumeric() || c.is_whitespace() {
-            text += 1;
-        }
-        total += 1;
-    }
-    text as f64 / total as f64 > 0.75
-}
-
 fn serve(req: &mut Request) -> IronResult<Response> {
     let (root, filter_str, max_size) = {
         let o = req.get::<Read<OptCarrier, Mutex<Options>>>().unwrap();
@@ -187,7 +168,6 @@ fn serve(req: &mut Request) -> IronResult<Response> {
         } else {
             plain(content[])
         }
-        //if guess_text(content[]) { plain(content[]) } else { binary(content[]) }
     } else {
         let mut content = match fs::readdir(&path) {
             Ok(s) => s,

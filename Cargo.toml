@@ -11,6 +11,8 @@ path = "src/sersve.rs"
 [dependencies]
 iron = "*"
 glob = "*"
+conduit-mime-types = "*"
+lazy_static = "~0.1.1"
 
 [dependencies.persistent]
 git = "https://github.com/iron/persistent"

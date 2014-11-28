@@ -2,10 +2,17 @@
 name = "sersve"
 version = "0.0.1"
 dependencies = [
+ "conduit-mime-types 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "glob 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "iron 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lazy_static 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "persistent 0.0.1 (git+https://github.com/iron/persistent)",
 ]
+
+[[package]]
+name = "conduit-mime-types"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "cookie"
@@ -61,6 +68,11 @@ dependencies = [
  "typemap 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "url 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "lazy_static"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "libressl-pnacl-sys"
