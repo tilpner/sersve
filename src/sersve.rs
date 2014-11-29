@@ -8,6 +8,7 @@ extern crate error;
 extern crate regex;
 extern crate "conduit-mime-types" as conduit_mime;
 extern crate mime;
+extern crate mustache;
 
 #[phase(plugin)]
 extern crate lazy_static;
@@ -18,11 +19,11 @@ use std::path::{ Path, GenericPath };
 use std::io::{ fs, Reader };
 use std::io::fs::{ File, PathExtensions };
 use std::default::Default;
-use std::sync::Mutex;
-
-use conduit_mime::Types;
+use std::sync::{ Arc };
 
 use regex::Regex;
+
+use conduit_mime::Types;
 
 use getopts::{ optopt, optflag, getopts, usage, OptGroup };
 
@@ -38,6 +39,8 @@ use iron::typemap::Assoc;
 
 use persistent::Read;
 
+use mustache::{ Template, MapBuilder };
+
 pub mod constants;
 
 #[deriving(Send, Clone, Default, Encodable, Decodable)]
@@ -47,13 +50,28 @@ struct Options {
     root: Option<Path>,
     filter: Option<String>,
     max_size: Option<u64>,
+    template: Option<String>
 }
 
 struct OptCarrier;
-impl Assoc<Mutex<Options>> for OptCarrier {}
+impl Assoc<Arc<Options>> for OptCarrier {}
+
+#[deriving(Send, Clone)]
+struct State {
+    template: Template
+}
+
+struct StateCarrier;
+impl Assoc<Arc<State>> for StateCarrier {}
 
 static UNITS: &'static [&'static str] = &["B", "kB", "MB", "GB", "TB"];
 const BRIEF: &'static str = "A minimal directory server, written in Rust with Iron.";
+
+const KEY_TITLE: &'static str = "title";
+const KEY_CONTENT: &'static str = "content";
+const KEY_URL: &'static str = "url";
+const KEY_SIZE: &'static str = "size";
+const KEY_NAME: &'static str = "name";
 
 lazy_static! {
     static ref MIME: Types = Types::new().ok().unwrap();
@@ -72,54 +90,35 @@ fn size_with_unit(mut size: u64) -> String {
     format!("{}.{} {}", size, frac, UNITS[index])
 }
 
-fn render(root: Path, dir: Path, files: Vec<Path>, filter: Option<Regex>) -> String {
-    fn render_item(url: Path, size: u64, name: &str) -> String {
-        format!("<tr><td><a href=\"/{url}\">{name}</a></td><td>{size}</td></tr>\n",
-        url = url.display(), size = size_with_unit(size), name = name)
-    }
+fn render(template: Template, root: Path, dir: Path, files: Vec<Path>, filter: Option<Regex>) -> String {
+    let data = MapBuilder::new()
+        .insert_str(KEY_TITLE, dir.display().as_maybe_owned())
+        .insert_vec(KEY_CONTENT, |mut vec| {
+            let item = |map: MapBuilder, url: &Path, size: u64, name: String| {
+                map.insert(KEY_URL, &format!("{}", url.display())[]).unwrap()
+                   .insert(KEY_SIZE, &size_with_unit(size)[]).unwrap()
+                   .insert_str(KEY_NAME, name)
+            };
+            let mut up = dir.clone();
+            up.pop();
+            if root.is_ancestor_of(&up) {
+                vec = vec.push_map(|map| item(map, &up.path_relative_from(&root).unwrap(), 0, "..".into_string()));
+            }
 
-    let mut content = String::new();
-    let mut up = dir.clone();
-    up.pop();
-    if root.is_ancestor_of(&up) {
-        content.push_str(render_item(up.path_relative_from(&root).unwrap(), 0, "..")[]);
-    }
+            for file in files.iter() {
+                let relative = file.path_relative_from(&root).unwrap();
+                let stat = file.stat().unwrap();
+                let filename = file.filename_display().as_maybe_owned().into_string();
+                if filter.as_ref().map_or(true, |f| f.is_match(filename[])) {
+                    vec = vec.push_map(|map| item(map, &relative, stat.size, filename.clone()));
+                }
+            }
+            vec
+        }).build();
 
-    for file in files.iter() {
-        let relative = file.path_relative_from(&root).unwrap();
-        let stat = file.stat().unwrap();
-        let filename = file.filename_display().as_maybe_owned().into_string();
-        if filter.as_ref().map_or(true, |f| f.is_match(filename[])) {
-            content.push_str(render_item(relative, stat.size, filename.clone()[])[]);
-        }
-    }
-
-    format!("<!DOCTYPE html>
-<html>
-    <title>{title}</title>
-    <style type=\"text/css\">
-    {css}
-    </style>
-    <body>
-        <div id=\"container\">
-            <h1>{title}</h1>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Size</th>
-                    </tr>
-                </thead>
-                <tbody>
-                {content}
-                </tbody>
-            </table>
-        </div>
-    </body>
-</html>",
-            title = dir.display().as_maybe_owned(),
-            css = constants::CSS,
-            content = content)
+    let mut out = Vec::new(); // with_capacity(template.len())
+    template.render_data(&mut out, &data);
+    unsafe { String::from_utf8_unchecked(out) }
 }
 
 fn plain<B: Bodyable>(content: B) -> IronResult<Response> {
@@ -134,11 +133,15 @@ fn html<B: Bodyable>(content: B) -> IronResult<Response> {
 
 fn serve(req: &mut Request) -> IronResult<Response> {
     let (root, filter_str, max_size) = {
-        let o = req.get::<Read<OptCarrier, Mutex<Options>>>().unwrap();
-        let mutex = o.lock();
-        (mutex.root.clone().unwrap_or_else(|| os::getcwd().ok().unwrap()),
-         mutex.filter.clone(),
-         mutex.max_size)
+        let o = req.get::<Read<OptCarrier, Arc<Options>>>().unwrap();
+        (o.root.clone().unwrap_or_else(|| os::getcwd().ok().unwrap()),
+         o.filter.clone(),
+         o.max_size)
+    };
+
+    let template = {
+        let s = req.get::<Read<StateCarrier, Arc<State>>>().unwrap();
+        s.template.clone()
     };
 
     let mut path = root.clone();
@@ -174,7 +177,7 @@ fn serve(req: &mut Request) -> IronResult<Response> {
             Err(e) => return html(e.desc)
         };
         content.sort_by(|a, b| a.filename_str().unwrap().cmp(b.filename_str().unwrap()));
-        html(render(root, path, content, filter)[])
+        html(render(template, root, path, content, filter)[])
     }
 }
 
@@ -193,6 +196,7 @@ fn main() {
         optopt("r", "root", "the uppermost directory to serve", "ROOT"),
         optopt("f", "filter", "a regular expression to filter the filenames", "REGEX"),
         optopt("s", "size", "the maximum size of a file that will be served", "BYTES"),
+        optopt("t", "template", "a mustache template to use for rendering", "TEMPLATE"),
         optflag("h", "help", "print this help menu")
     ];
     let matches = match getopts(args.tail(), opts) {
@@ -208,7 +212,7 @@ fn main() {
         return;
     }
 
-    let options: Mutex<Options> = Mutex::new(Default::default());
+    let mut options: Options = Default::default();
 
     matches.opt_str("c").map(|conf_file| {
         let conf_file = File::open(&Path::new(conf_file));
@@ -217,47 +221,57 @@ fn main() {
             Ok(Json::Object(o)) => o,
             _ => panic!("Invalid configuration file. Doesn't contain top-level object.")
         };
-        let mut o = options.lock();
-        o.host = match json.get("address") {
+        options.host = match json.get("address") {
             Some(&Json::String(ref s)) => Some((*s).clone()),
             None => None,
             _ => panic!("Invalid configuration file. `address` field must be a string.")
         };
-        o.port = match json.get("port") {
+        options.port = match json.get("port") {
             Some(&Json::U64(u)) => Some(u as u16),
             None => None,
             _ => panic!("Invalid configuration file. `port` field must be an unsigned integer.")
         };
-        o.root = match json.get("root") {
+        options.root = match json.get("root") {
             Some(&Json::String(ref s)) => Some(Path::new((*s).clone())),
             None => None,
             _ => panic!("Invalid configuration file. `root` field must be a string.")
         };
-        o.filter = match json.get("filter") {
+        options.filter = match json.get("filter") {
             Some(&Json::String(ref s)) => Some((*s).clone()),
             None => None,
             _ => panic!("Invalid configuration file. `filter` field must be a string.")
         };
-        o.max_size = match json.get("size") {
+        options.max_size = match json.get("size") {
             Some(&Json::U64(u)) => Some(u),
             None => None,
             _ => panic!("Invalid configuration file. `size` field must be an unsigned integer.")
-        }
+        };
+        options.template = match json.get("template") {
+            Some(&Json::String(ref s)) => Some((*s).clone()),
+            None => None,
+            _ => panic!("Invalid configuration file. `template` field must be a string.")
+        };
     });
 
     let (host, port) = {
-        let mut o = options.lock();
-        o.host = o.host.clone().or(matches.opt_str("a"));
-        o.port = o.port.or(matches.opt_str("p").and_then(|p| str::from_str(p[])));
-        o.root = o.root.clone().or(matches.opt_str("r").and_then(|p| Path::new_opt(p)));
-        o.filter = o.filter.clone().or(matches.opt_str("f"));
-        o.max_size = o.max_size.or(matches.opt_str("s").and_then(|s| str::from_str(s[])));
-        (o.host.clone().unwrap_or("0.0.0.0".into_string()),
-         o.port.clone().unwrap_or(8080))
+        options.host = options.host.clone().or(matches.opt_str("a"));
+        options.port = options.port.or(matches.opt_str("p").and_then(|p| str::from_str(p[])));
+        options.root = options.root.clone().or(matches.opt_str("r").and_then(|p| Path::new_opt(p)));
+        options.filter = options.filter.clone().or(matches.opt_str("f"));
+        options.max_size = options.max_size.or(matches.opt_str("s").and_then(|s| str::from_str(s[])));
+        options.template = options.template.clone().or(matches.opt_str("t"));
+        (options.host.clone().unwrap_or("0.0.0.0".into_string()),
+         options.port.clone().unwrap_or(8080))
+    };
+
+    let template = mustache::compile_str(options.template.clone().unwrap_or(constants::TEMPLATE.into_string())[]);
+    let state = State {
+        template: template
     };
 
     let mut chain = ChainBuilder::new(serve);
-    chain.link(Read::<OptCarrier, Mutex<Options>>::both(options));
+    chain.link(Read::<OptCarrier, Arc<Options>>::both(Arc::new(options)));
+    chain.link(Read::<StateCarrier, Arc<State>>::both(Arc::new(state)));
     match Iron::new(chain).listen((host[], port)) {
         Ok(_) => (),
         Err(e) => println!("I'm sorry, I failed you. {}", e)

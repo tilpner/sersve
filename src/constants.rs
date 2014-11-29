@@ -1,5 +1,8 @@
-pub const CSS: &'static str =
-r"
+pub const TEMPLATE: &'static str =
+"<!DOCTYPE html>
+<html>
+    <title>{{title}}</title>
+    <style type=\"text/css\">
 * {
 	padding:0;
 	margin:0;
@@ -75,4 +78,30 @@ tr:hover td {
 tr:hover td a {
 	color: #000;
 }
-";
+    </style>
+    <body>
+        <div id=\"container\">
+            <h1>{{title}}</h1>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Size</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{#content}}
+                    <tr>
+                        <td>
+                            <a href=\"/{{url}}\">{{name}}</a>
+                        </td>
+                        <td>
+                            {{size}}
+                        </td>
+                    </tr>
+                {{/content}}
+                </tbody>
+            </table>
+        </div>
+    </body>
+</html>";

@@ -16,3 +16,6 @@ lazy_static = "~0.1.1"
 
 [dependencies.persistent]
 git = "https://github.com/iron/persistent"
+
+[dependencies.rust-mustache]
+git = "https://github.com/erickt/rust-mustache"

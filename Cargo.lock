@@ -7,6 +7,7 @@ dependencies = [
  "iron 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "persistent 0.0.1 (git+https://github.com/iron/persistent)",
+ "rust-mustache 0.3.0 (git+https://github.com/erickt/rust-mustache)",
 ]
 
 [[package]]
@@ -144,6 +145,11 @@ dependencies = [
 name = "pnacl-build-helper"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "rust-mustache"
+version = "0.3.0"
+source = "git+https://github.com/erickt/rust-mustache#00bfc4fc5914d7f2138d61ecacbbc7b275ea6b98"
 
 [[package]]
 name = "stainless"
