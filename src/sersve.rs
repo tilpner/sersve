@@ -264,7 +264,7 @@ fn main() {
          options.port.clone().unwrap_or(8080))
     };
 
-    let template = mustache::compile_str(options.template.clone().unwrap_or(constants::TEMPLATE.into_string())[]);
+    let template = mustache::compile_str(options.template.clone().unwrap_or(constants::OPT_TEMPLATE.into_string())[]);
     let state = State {
         template: template
     };
