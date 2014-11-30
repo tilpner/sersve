@@ -1,0 +1,6 @@
+{
+    "address": "0.0.0.0",
+    "port": 8080,
+    "root": "/home/till/",
+    "template": "<!DOCTYPE html><html><title>{{title}}</title><body><div id=\"container\"><h1>{{title}}</h1><table><thead><tr><th>Name</th><th>Size</th></tr></thead><tbody>{{#content}} <tr> <td> <a href=\"/{{url}}\">{{name}}</a> </td> <td> {{size}} </td> </tr> {{/content}} </tbody> </table> </div> </body></html>"
+}

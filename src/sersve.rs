@@ -217,6 +217,8 @@ fn main() {
     matches.opt_str("c").map(|conf_file| {
         let conf_file = File::open(&Path::new(conf_file));
         conf_file.as_ref().map_err::<()>(|e| panic!("{}", e.desc)).unwrap();
+
+        // cannot if-let, because typesafe errors are helpful
         let json = match json::from_reader(&mut conf_file.ok().unwrap()) {
             Ok(Json::Object(o)) => o,
             _ => panic!("Invalid configuration file. Doesn't contain top-level object.")
