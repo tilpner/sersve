@@ -3,7 +3,7 @@ name = "sersve"
 version = "0.0.1"
 dependencies = [
  "conduit-mime-types 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "glob 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "glob 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "iron 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "persistent 0.0.1 (git+https://github.com/iron/persistent)",
@@ -20,8 +20,8 @@ name = "cookie"
 version = "0.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "openssl 0.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "time 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "openssl 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "time 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "url 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -35,25 +35,25 @@ dependencies = [
 
 [[package]]
 name = "gcc"
-version = "0.0.2"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "glob"
-version = "0.0.3"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "hyper"
-version = "0.0.5"
+version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cookie 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "mime 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "openssl 0.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "time 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "openssl 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "time 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "typeable 0.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "unsafe-any 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "unsafe-any 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "url 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -63,10 +63,10 @@ version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "error 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "hyper 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "modifier 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hyper 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "modifier 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "plugin 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "typemap 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "typemap 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "url 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -76,41 +76,29 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "libressl-pnacl-sys"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "pnacl-build-helper 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "mime"
 version = "0.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "modifier"
-version = "0.0.1"
+version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "stainless 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
-]
 
 [[package]]
 name = "openssl"
-version = "0.0.2"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "libressl-pnacl-sys 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "openssl-sys 0.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "openssl-sys 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "openssl-sys"
-version = "0.0.2"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "pkg-config 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pkg-config 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -129,7 +117,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "pkg-config"
-version = "0.0.1"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -138,13 +126,8 @@ version = "0.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "phantom 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "typemap 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "typemap 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
-
-[[package]]
-name = "pnacl-build-helper"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "rust-mustache"
@@ -152,16 +135,11 @@ version = "0.3.0"
 source = "git+https://github.com/erickt/rust-mustache#00bfc4fc5914d7f2138d61ecacbbc7b275ea6b98"
 
 [[package]]
-name = "stainless"
-version = "0.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
 name = "time"
-version = "0.0.3"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "gcc 0.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gcc 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -171,16 +149,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "typemap"
-version = "0.0.3"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "phantom 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "unsafe-any 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "unsafe-any 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "unsafe-any"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]

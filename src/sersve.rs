@@ -39,7 +39,7 @@ use iron::typemap::Assoc;
 
 use persistent::Read;
 
-use mustache::{ Template, MapBuilder };
+use mustache::{ Template, VecBuilder, MapBuilder };
 
 pub mod constants;
 
@@ -92,8 +92,8 @@ fn size_with_unit(mut size: u64) -> String {
 
 fn render(template: Template, root: Path, dir: Path, files: Vec<Path>, filter: Option<Regex>) -> String {
     let data = MapBuilder::new()
-        .insert_str(KEY_TITLE, dir.display().as_maybe_owned())
-        .insert_vec(KEY_CONTENT, |mut vec| {
+        .insert_str(KEY_TITLE, dir.display().as_cow().into_owned())
+        .insert_vec(KEY_CONTENT, |mut vec: VecBuilder| {
             let item = |map: MapBuilder, url: &Path, size: u64, name: String| {
                 map.insert(KEY_URL, &format!("{}", url.display())[]).unwrap()
                    .insert(KEY_SIZE, &size_with_unit(size)[]).unwrap()
@@ -102,13 +102,13 @@ fn render(template: Template, root: Path, dir: Path, files: Vec<Path>, filter: O
             let mut up = dir.clone();
             up.pop();
             if root.is_ancestor_of(&up) {
-                vec = vec.push_map(|map| item(map, &up.path_relative_from(&root).unwrap(), 0, "..".into_string()));
+                vec = vec.push_map(|map: MapBuilder| item(map, &up.path_relative_from(&root).unwrap(), 0, "..".into_string()));
             }
 
             for file in files.iter() {
                 let relative = file.path_relative_from(&root).unwrap();
                 let stat = file.stat().unwrap();
-                let filename = file.filename_display().as_maybe_owned().into_string();
+                let filename = file.filename_display().as_cow().into_owned();
                 if filter.as_ref().map_or(true, |f| f.is_match(filename[])) {
                     vec = vec.push_map(|map| item(map, &relative, stat.size, filename.clone()));
                 }
