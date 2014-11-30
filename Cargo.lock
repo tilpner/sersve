@@ -5,7 +5,6 @@ dependencies = [
  "conduit-mime-types 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "glob 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "iron 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "lazy_static 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "persistent 0.0.1 (git+https://github.com/iron/persistent)",
  "rust-mustache 0.3.0 (git+https://github.com/erickt/rust-mustache)",
 ]
@@ -69,11 +68,6 @@ dependencies = [
  "typemap 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "url 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
-
-[[package]]
-name = "lazy_static"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "mime"

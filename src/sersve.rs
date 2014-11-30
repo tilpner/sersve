@@ -4,14 +4,10 @@ extern crate getopts;
 extern crate serialize;
 extern crate iron;
 extern crate persistent;
-extern crate error;
 extern crate regex;
 extern crate "conduit-mime-types" as conduit_mime;
 extern crate mime;
 extern crate mustache;
-
-#[phase(plugin)]
-extern crate lazy_static;
 
 use std::{ str, os };
 use std::str::from_str;
@@ -41,6 +37,8 @@ use persistent::Read;
 
 use mustache::{ Template, VecBuilder, MapBuilder };
 
+use constants::*;
+
 pub mod constants;
 
 #[deriving(Send, Clone, Default, Encodable, Decodable)]
@@ -58,11 +56,15 @@ impl Assoc<Arc<Options>> for OptCarrier {}
 
 #[deriving(Send, Clone)]
 struct State {
-    template: Template
+    template: Template,
+    mime_types: Arc<Types>
 }
 
 struct StateCarrier;
 impl Assoc<Arc<State>> for StateCarrier {}
+
+const HOST: &'static str = "0.0.0.0";
+const PORT: u16 = 8080;
 
 static UNITS: &'static [&'static str] = &["B", "kB", "MB", "GB", "TB"];
 const BRIEF: &'static str = "A minimal directory server, written in Rust with Iron.";
@@ -72,10 +74,6 @@ const KEY_CONTENT: &'static str = "content";
 const KEY_URL: &'static str = "url";
 const KEY_SIZE: &'static str = "size";
 const KEY_NAME: &'static str = "name";
-
-lazy_static! {
-    static ref MIME: Types = Types::new().ok().unwrap();
-}
 
 fn size_with_unit(mut size: u64) -> String {
     let mut frac = 0;
@@ -142,9 +140,10 @@ fn serve(req: &mut Request) -> IronResult<Response> {
          o.max_size)
     };
 
-    let template = {
+    let (template, mime_types) = {
         let s = req.get::<Read<StateCarrier, Arc<State>>>().unwrap();
-        s.template.clone()
+        (s.template.clone(),
+         s.mime_types.clone())
     };
 
     let mut path = root.clone();
@@ -167,7 +166,7 @@ fn serve(req: &mut Request) -> IronResult<Response> {
             return html("I don't think you're allowed to do this.");
         }
         let mime: Option<iron::mime::Mime> = path.extension_str()
-            .map_or(None, |e| MIME.get_mime_type(e))
+            .map_or(None, |e| mime_types.get_mime_type(e))
             .map_or(None, |m| from_str(m));
         if mime.as_ref().is_some() {
             plain(content[]).map(|r| r.set(ContentType((*mime.as_ref().unwrap()).clone())))
@@ -265,13 +264,14 @@ fn main() {
         options.filter = matches.opt_str("f").or(options.filter);
         options.max_size = matches.opt_str("s").and_then(|s| str::from_str(s[])).or(options.max_size);
         options.template = matches.opt_str("t").or(options.template);
-        (options.host.clone().unwrap_or("0.0.0.0".into_string()),
-         options.port.clone().unwrap_or(8080))
+        (options.host.clone().unwrap_or(HOST.into_string()),
+         options.port.clone().unwrap_or(PORT))
     };
 
-    let template = mustache::compile_str(options.template.clone().unwrap_or(constants::OPT_TEMPLATE.into_string())[]);
+    let template = mustache::compile_str(options.template.clone().unwrap_or(OPT_TEMPLATE.into_string())[]);
     let state = State {
-        template: template
+        template: template,
+        mime_types: Arc::new(Types::new().ok().unwrap())
     };
 
     let mut chain = ChainBuilder::new(serve);
