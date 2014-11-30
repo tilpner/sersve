@@ -90,15 +90,17 @@ fn size_with_unit(mut size: u64) -> String {
     format!("{}.{} {}", size, frac, UNITS[index])
 }
 
-fn render(template: Template, root: Path, dir: Path, files: Vec<Path>, filter: Option<Regex>) -> String {
-    let data = MapBuilder::new()
+fn render<'a>(template: Template, root: Path, dir: Path, files: Vec<Path>, filter: Option<Regex>) -> String {
+    let data = MapBuilder::<'a>::new()
         .insert_str(KEY_TITLE, dir.display().as_cow().into_owned())
-        .insert_vec(KEY_CONTENT, |mut vec: VecBuilder| {
+        .insert_vec(KEY_CONTENT, |mut vec: VecBuilder<'a>| {
             let item = |map: MapBuilder, url: &Path, size: u64, name: String| {
                 map.insert(KEY_URL, &format!("{}", url.display())[]).unwrap()
                    .insert(KEY_SIZE, &size_with_unit(size)[]).unwrap()
                    .insert_str(KEY_NAME, name)
             };
+
+            // add `..` entry if necessary
             let mut up = dir.clone();
             up.pop();
             if root.is_ancestor_of(&up) {
@@ -113,11 +115,12 @@ fn render(template: Template, root: Path, dir: Path, files: Vec<Path>, filter: O
                     vec = vec.push_map(|map| item(map, &relative, stat.size, filename.clone()));
                 }
             }
-            unsafe { std::mem::transmute(vec) }
+            vec
         }).build();
 
     let mut out = Vec::new(); // with_capacity(template.len())
     template.render_data(&mut out, &data);
+    // The template should be valid utf8, the filenames might not be
     unsafe { String::from_utf8_unchecked(out) }
 }
 

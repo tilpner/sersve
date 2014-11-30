@@ -4,6 +4,9 @@ name = "sersve"
 version = "0.0.1"
 authors = ["Till Hoeppner <till@hoeppner.ws>"]
 
+[profile.release]
+lto = true
+
 [[bin]]
 name = "sersve"
 path = "src/sersve.rs"
