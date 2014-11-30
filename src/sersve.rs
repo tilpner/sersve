@@ -113,7 +113,7 @@ fn render(template: Template, root: Path, dir: Path, files: Vec<Path>, filter: O
                     vec = vec.push_map(|map| item(map, &relative, stat.size, filename.clone()));
                 }
             }
-            vec
+            unsafe { std::mem::transmute(vec) }
         }).build();
 
     let mut out = Vec::new(); // with_capacity(template.len())
@@ -254,12 +254,12 @@ fn main() {
     });
 
     let (host, port) = {
-        options.host = options.host.clone().or(matches.opt_str("a"));
-        options.port = options.port.or(matches.opt_str("p").and_then(|p| str::from_str(p[])));
-        options.root = options.root.clone().or(matches.opt_str("r").and_then(|p| Path::new_opt(p)));
-        options.filter = options.filter.clone().or(matches.opt_str("f"));
-        options.max_size = options.max_size.or(matches.opt_str("s").and_then(|s| str::from_str(s[])));
-        options.template = options.template.clone().or(matches.opt_str("t"));
+        options.host = matches.opt_str("a").or(options.host);
+        options.port = matches.opt_str("p").and_then(|p| str::from_str(p[])).or(options.port);
+        options.root = matches.opt_str("r").and_then(|p| Path::new_opt(p)).or(options.root);
+        options.filter = matches.opt_str("f").or(options.filter);
+        options.max_size = matches.opt_str("s").and_then(|s| str::from_str(s[])).or(options.max_size);
+        options.template = matches.opt_str("t").or(options.template);
         (options.host.clone().unwrap_or("0.0.0.0".into_string()),
          options.port.clone().unwrap_or(8080))
     };
