@@ -8,6 +8,7 @@ extern crate regex;
 extern crate "conduit-mime-types" as conduit_mime;
 extern crate mime;
 extern crate mustache;
+extern crate libc;
 
 use std::{ str, os };
 use std::str::from_str;
@@ -15,7 +16,8 @@ use std::path::{ Path, GenericPath };
 use std::io::{ fs, Reader };
 use std::io::fs::{ File, PathExtensions };
 use std::default::Default;
-use std::sync::{ Arc };
+use std::sync::Arc;
+use std::cell::{ RefCell };
 
 use regex::Regex;
 
@@ -48,7 +50,9 @@ struct Options {
     root: Option<Path>,
     filter: Option<String>,
     max_size: Option<u64>,
-    template: Option<String>
+    template: Option<String>,
+    fork: Option<bool>,
+    threads: Option<uint>
 }
 
 struct OptCarrier;
@@ -74,6 +78,27 @@ const KEY_CONTENT: &'static str = "content";
 const KEY_URL: &'static str = "url";
 const KEY_SIZE: &'static str = "size";
 const KEY_NAME: &'static str = "name";
+
+const DEF_LEN: uint = 10000;
+
+thread_local! (static OUT: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(DEF_LEN)))
+
+fn fork() {
+    unsafe {
+        println!("Forking now!");
+        let pid = libc::funcs::posix88::unistd::fork();
+        if pid == 0 {
+            // we are child, now get to work
+            return;
+        } else if pid > 0 {
+            // fork succeeded, die
+            libc::funcs::c95::stdlib::exit(0);
+        } else if pid < 0 {
+            // unsuccessful, don't die
+            return;
+        }
+    }
+}
 
 fn size_with_unit(mut size: u64) -> String {
     let mut frac = 0;
@@ -116,11 +141,19 @@ fn render<'a>(template: Template, root: Path, dir: Path, files: Vec<Path>, filte
             vec
         }).build();
 
-    let mut out = Vec::new(); // with_capacity(template.len())
-    template.render_data(&mut out, &data);
-    // The template should be valid utf8, the filenames might not be
-    unsafe { String::from_utf8_unchecked(out) }
-}
+    // Use thread-local storage to reduce allocation
+    OUT.with(|ref_out| {
+        {
+            let mut o = ref_out.borrow_mut();
+            o.clear();
+            template.render_data(&mut *o, &data);
+        }
+        // The template should be valid utf8, the filenames might not be
+        String::from_utf8(ref_out.borrow().clone()).unwrap_or_else(|v| {
+            String::from_utf8_lossy(v[]).into_owned()
+        })
+    })
+    }
 
 fn plain<B: Bodyable>(content: B) -> IronResult<Response> {
     Ok(Response::new()
@@ -179,7 +212,7 @@ fn serve(req: &mut Request) -> IronResult<Response> {
             Err(e) => return html(e.desc)
         };
         content.sort_by(|a, b| a.filename_str().unwrap().cmp(b.filename_str().unwrap()));
-        html(render(template, root, path, content, filter)[])
+        html(render(template, root, path, content, filter))
     }
 }
 
@@ -199,6 +232,8 @@ fn main() {
         optopt("f", "filter", "a regular expression to filter the filenames", "REGEX"),
         optopt("s", "size", "the maximum size of a file that will be served", "BYTES"),
         optopt("t", "template", "a mustache template to use for rendering", "TEMPLATE"),
+        optopt("", "threads", "amount of threads to use for serving", "THREADS"),
+        optflag("", "fork", "fork sersve into a background process"),
         optflag("h", "help", "print this help menu")
     ];
     let matches = match getopts(args.tail(), opts) {
@@ -255,18 +290,34 @@ fn main() {
             None => None,
             _ => panic!("Invalid configuration file. `template` field must be a string.")
         };
+        options.fork = match json.get("fork") {
+            Some(&Json::Boolean(b)) => Some(b),
+            None => None,
+            _ => panic!("Invalid configuration file. `fork` field must be a boolean")
+        };
+        options.threads = match json.get("threads") {
+            Some(&Json::U64(u)) => Some(u as uint),
+            None => None,
+            _ => panic!("Invalid configuration file. `threads` field must be a string.")
+        }
     });
 
-    let (host, port) = {
+    let (host, port, threads) = {
         options.host = matches.opt_str("a").or(options.host);
         options.port = matches.opt_str("p").and_then(|p| str::from_str(p[])).or(options.port);
         options.root = matches.opt_str("r").and_then(|p| Path::new_opt(p)).or(options.root);
         options.filter = matches.opt_str("f").or(options.filter);
         options.max_size = matches.opt_str("s").and_then(|s| str::from_str(s[])).or(options.max_size);
         options.template = matches.opt_str("t").or(options.template);
+        options.threads = matches.opt_str("threads").and_then(|s| str::from_str(s[])).or(options.threads);
         (options.host.clone().unwrap_or(HOST.into_string()),
-         options.port.clone().unwrap_or(PORT))
+         options.port.clone().unwrap_or(PORT),
+         options.threads.unwrap_or(os::num_cpus()))
     };
+
+    if options.fork.unwrap_or(false) || matches.opt_present("fork") {
+        fork();
+    }
 
     let template = mustache::compile_str(options.template.clone().unwrap_or(OPT_TEMPLATE.into_string())[]);
     let state = State {
@@ -277,8 +328,8 @@ fn main() {
     let mut chain = ChainBuilder::new(serve);
     chain.link(Read::<OptCarrier, Arc<Options>>::both(Arc::new(options)));
     chain.link(Read::<StateCarrier, Arc<State>>::both(Arc::new(state)));
-    match Iron::new(chain).listen((host[], port)) {
+    match Iron::new(chain).listen_with((host[], port), threads) {
         Ok(_) => (),
-        Err(e) => println!("I'm sorry, I failed you. {}", e)
+        Err(e) => println!("I'm sorry, I failed you.\nError: {}", e)
     }
 }
