@@ -85,7 +85,6 @@ thread_local! (static OUT: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(DE
 
 fn fork() {
     unsafe {
-        println!("Forking now!");
         let pid = libc::funcs::posix88::unistd::fork();
         if pid == 0 {
             // we are child, now get to work
