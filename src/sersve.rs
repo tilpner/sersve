@@ -1,4 +1,4 @@
-#![feature(unboxed_closures, custom_attribute, thread_local, plugin, custom_derive, path_ext, path_relative_from)]
+#![feature(plugin, path_ext, path_relative_from)]
 #![plugin(serde_macros, docopt_macros)]
 
 extern crate iron;
