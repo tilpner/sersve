@@ -12,12 +12,16 @@ name = "sersve"
 path = "src/sersve.rs"
 
 [dependencies]
-iron = "~0.0.5"
-glob = "~0.1.0"
-conduit-mime-types = "~0.5.0"
-
-[dependencies.persistent]
-git = "https://github.com/iron/persistent"
-
-[dependencies.rust-mustache]
-git = "https://github.com/erickt/rust-mustache"
+iron = "*"
+glob = "*"
+conduit-mime-types = "*"
+mustache = "*"
+regex = "*"
+num_cpus = "*"
+serde = "*"
+serde_macros = "*"
+lazy_static = "*"
+libc = "*"
+docopt = "*"
+docopt_macros = "*"
+rustc-serialize = "*"

@@ -1,41 +1,37 @@
-#![feature(phase, globs, slicing_syntax, if_let, unboxed_closures)]
+#![feature(unboxed_closures, custom_attribute, thread_local, plugin, custom_derive, path_ext, path_relative_from)]
+#![plugin(serde_macros, docopt_macros)]
 
-extern crate getopts;
-extern crate serialize;
 extern crate iron;
-extern crate persistent;
 extern crate regex;
-extern crate "conduit-mime-types" as conduit_mime;
-extern crate mime;
+extern crate conduit_mime_types;
 extern crate mustache;
 extern crate libc;
+extern crate num_cpus;
+extern crate serde;
+#[macro_use]
+extern crate lazy_static;
+extern crate docopt;
+extern crate rustc_serialize;
 
-use std::{ str, os };
-use std::str::from_str;
-use std::path::{ Path, GenericPath };
-use std::io::{ fs, Reader };
-use std::io::fs::{ File, PathExtensions };
-use std::default::Default;
+use std::{ env, fs, process };
+use std::path::{ Path, PathBuf };
+use std::io::{ Read, Write };
+use std::error::Error;
+use std::fs::{ File, PathExt };
 use std::sync::Arc;
-use std::cell::{ RefCell };
+use std::borrow::Borrow;
 
 use regex::Regex;
 
-use conduit_mime::Types;
+use conduit_mime_types::Types;
 
-use getopts::{ optopt, optflag, getopts, usage, OptGroup };
-
-use serialize::json;
-use serialize::json::Json;
+use serde::json::{ self, Value };
 
 use iron::prelude::*;
-use iron::response::modifiers::*;
 use iron::status;
-use iron::mime::*;
-use iron::middleware::ChainBuilder;
-use iron::typemap::Assoc;
-
-use persistent::Read;
+use iron::mime::{ Mime, TopLevel, SubLevel };
+use iron::headers::ContentType;
+use iron::modifiers::Header;
 
 use mustache::{ Template, VecBuilder, MapBuilder };
 
@@ -43,35 +39,46 @@ use constants::*;
 
 pub mod constants;
 
-#[deriving(Send, Clone, Default, Encodable, Decodable)]
-struct Options {
-    host: Option<String>,
-    port: Option<u16>,
-    root: Option<Path>,
-    filter: Option<String>,
-    max_size: Option<u64>,
-    template: Option<String>,
-    fork: Option<bool>,
-    threads: Option<uint>
-}
+docopt!(Args derive Debug, "
+A minimal static file server, written in Rust with Iron.
+Usage: sersve [options]
 
-struct OptCarrier;
-impl Assoc<Arc<Options>> for OptCarrier {}
+Options:
+    -h, --help                  Show this message.
+    -v, --version               Show the version of sersve (duh).
+    -c, --config FILE           Provide a configuration file (JSON).
+    -a, --address HOST          The address to bind to.
+    -p, --port PORT             The port to serve.
+    -r, --root ROOT             The uppermost directory to serve.
+    -f, --filter REGEX          A regular expression to filter the filenames.
+    -s, --size BYTES            The maximum size of a file that will be served.
+    -t, --template TEMPLATE     A Mustache template to use for rendering.
+    --threads THREADS           Amount of threads to use for serving.
+    --fork                      Fork sersve into a background process.",
+    flag_help: bool,
+    flag_version: bool,
+    flag_config: Option<String>,
+    flag_address: Option<String>,
+    flag_port: Option<u16>,
+    flag_root: Option<String>,
+    flag_filter: Option<String>,
+    flag_size: Option<u64>,
+    flag_template: Option<String>,
+    flag_threads: Option<usize>,
+    flag_fork: bool
+);
 
-#[deriving(Send, Clone)]
+#[derive(Clone)]
 struct State {
     template: Template,
+    root: Option<PathBuf>,
     mime_types: Arc<Types>
 }
-
-struct StateCarrier;
-impl Assoc<Arc<State>> for StateCarrier {}
 
 const HOST: &'static str = "0.0.0.0";
 const PORT: u16 = 8080;
 
 static UNITS: &'static [&'static str] = &["B", "kB", "MB", "GB", "TB"];
-const BRIEF: &'static str = "A minimal directory server, written in Rust with Iron.";
 
 const KEY_TITLE: &'static str = "title";
 const KEY_CONTENT: &'static str = "content";
@@ -79,9 +86,81 @@ const KEY_URL: &'static str = "url";
 const KEY_SIZE: &'static str = "size";
 const KEY_NAME: &'static str = "name";
 
-const DEF_LEN: uint = 10000;
+const DEF_LEN: usize = 10000;
 
-thread_local! (static OUT: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(DEF_LEN)))
+lazy_static! {
+    static ref ARGS: Args = {
+        let mut args: Args = Args::docopt().decode().unwrap_or_else(|e| e.exit());
+
+        if let Some(ref flag_config) = args.flag_config {
+            let conf = File::open(&flag_config)
+                            .and_then(|mut f| {
+                                let mut out = String::new();
+                                f.read_to_string(&mut out).map(|_| out)
+                            }).map_err(|e| error(e.description()))
+                            .unwrap();
+
+            // cannot if-let, because typesafe errors are helpful
+            let json = match json::from_str(&conf) {
+                Ok(Value::Object(o)) => o,
+                _ => panic!("Invalid configuration file. Doesn't contain valid top-level object.")
+            };
+            args.flag_address = args.flag_address.or(match json.get("address") {
+                Some(&Value::String(ref s)) => Some((*s).clone()),
+                None => None,
+                _ => panic!("Invalid configuration file. `address` field must be a string.")
+            });
+            args.flag_port = args.flag_port.or(match json.get("port") {
+                Some(&Value::U64(u)) => Some(u as u16),
+                None => None,
+                _ => panic!("Invalid configuration file. `port` field must be an unsigned integer.")
+            });
+            args.flag_root = args.flag_root.or(match json.get("root") {
+                Some(&Value::String(ref s)) => Some(s.clone()),
+                None => None,
+                _ => panic!("Invalid configuration file. `root` field must be a string.")
+            });
+            args.flag_filter = args.flag_filter.or(match json.get("filter") {
+                Some(&Value::String(ref s)) => Some((*s).clone()),
+                None => None,
+                _ => panic!("Invalid configuration file. `filter` field must be a string.")
+            });
+            args.flag_size = args.flag_size.or(match json.get("size") {
+                Some(&Value::U64(u)) => Some(u),
+                None => None,
+                _ => panic!("Invalid configuration file. `size` field must be an unsigned integer.")
+            });
+            args.flag_template = args.flag_template.or(match json.get("template") {
+                Some(&Value::String(ref s)) => Some((*s).clone()),
+                None => None,
+                _ => panic!("Invalid configuration file. `template` field must be a string.")
+            });
+            args.flag_fork = args.flag_fork || match json.get("fork") {
+                Some(&Value::Bool(b)) => b,
+                None => false,
+                _ => panic!("Invalid configuration file. `fork` field must be a boolean")
+            };
+            args.flag_threads = args.flag_threads.or(match json.get("threads") {
+                Some(&Value::U64(u)) => Some(u as usize),
+                None => None,
+                _ => panic!("Invalid configuration file. `threads` field must be a string.")
+            })
+        };
+
+        args
+    };
+
+    static ref STATE: State = State {
+        template: mustache::compile_str(&ARGS.flag_template.as_ref().unwrap_or(&OPT_TEMPLATE.to_owned())),
+        root: ARGS.flag_root.clone().map(|p| Path::new(&p).to_path_buf()),
+        mime_types: Arc::new(Types::new().ok().unwrap())
+    };
+}
+
+fn error(e: &str) -> ! {
+    println!("Error: {}", e);
+    process::exit(-1);
+}
 
 fn fork() {
     unsafe {
@@ -91,7 +170,7 @@ fn fork() {
             return;
         } else if pid > 0 {
             // fork succeeded, die
-            libc::funcs::c95::stdlib::exit(0);
+            process::exit(0);
         } else if pid < 0 {
             // unsuccessful, don't die
             return;
@@ -112,223 +191,114 @@ fn size_with_unit(mut size: u64) -> String {
     format!("{}.{} {}", size, frac, UNITS[index])
 }
 
-fn render<'a>(template: Template, root: Path, dir: Path, files: Vec<Path>, filter: Option<Regex>) -> String {
-    let data = MapBuilder::<'a>::new()
-        .insert_str(KEY_TITLE, dir.display().as_cow().into_owned())
-        .insert_vec(KEY_CONTENT, |mut vec: VecBuilder<'a>| {
+fn render<'a, W: Write>(mut out: W, template: Template, root: PathBuf, dir: PathBuf, files: Vec<PathBuf>, filter: Option<Regex>) {
+    let data = MapBuilder::new()
+        .insert_str(KEY_TITLE, format!("{}", dir.display()))
+        .insert_vec(KEY_CONTENT, |mut vec: VecBuilder| {
             let item = |map: MapBuilder, url: &Path, size: u64, name: String| {
-                map.insert(KEY_URL, &format!("{}", url.display())[]).unwrap()
-                   .insert(KEY_SIZE, &size_with_unit(size)[]).unwrap()
+                map.insert(KEY_URL, &format!("{}", url.display())).unwrap()
+                   .insert(KEY_SIZE, &size_with_unit(size)).unwrap()
                    .insert_str(KEY_NAME, name)
             };
 
             // add `..` entry if necessary
-            let mut up = dir.clone();
+            let mut up = dir.to_path_buf();
             up.pop();
-            if root.is_ancestor_of(&up) {
-                vec = vec.push_map(|map: MapBuilder| item(map, &up.path_relative_from(&root).unwrap(), 0, "..".into_string()));
+            if up.starts_with(&root) {
+                vec = vec.push_map(|map: MapBuilder| item(map, &up.relative_from(&root).unwrap(), 0, "..".to_owned()));
             }
 
             for file in files.iter() {
-                let relative = file.path_relative_from(&root).unwrap();
-                let stat = file.stat().unwrap();
-                let filename = file.filename_display().as_cow().into_owned();
-                if filter.as_ref().map_or(true, |f| f.is_match(filename[])) {
-                    vec = vec.push_map(|map| item(map, &relative, stat.size, filename.clone()));
+                let relative = file.relative_from(&root).unwrap();
+                let stat = file.metadata().unwrap();
+                let filename = file.file_name()
+                    .expect("Cannot get filename").to_string_lossy().into_owned();
+                if filter.as_ref().map_or(true, |f| f.is_match(&filename)) {
+                    vec = vec.push_map(|map| item(map, &relative, stat.len(), filename.clone()));
                 }
             }
             vec
         }).build();
 
-    // Use thread-local storage to reduce allocation
-    OUT.with(|ref_out| {
-        {
-            let mut o = ref_out.borrow_mut();
-            o.clear();
-            template.render_data(&mut *o, &data);
-        }
-        // The template should be valid utf8, the filenames might not be
-        String::from_utf8(ref_out.borrow().clone()).unwrap_or_else(|v| {
-            String::from_utf8_lossy(v[]).into_owned()
-        })
-    })
-    }
-
-fn plain<B: Bodyable>(content: B) -> IronResult<Response> {
-    Ok(Response::new()
-       .set(Status(status::Ok))
-       .set(Body(content)))
+    template.render_data(&mut out, &data);
 }
 
-fn html<B: Bodyable>(content: B) -> IronResult<Response> {
-    plain(content).map(|r| r.set(ContentType(Mime(Text, Html, Vec::new()))))
+fn plain(content: &[u8]) -> IronResult<Response> {
+    Ok(Response::with((status::Ok, content)))
+}
+
+fn html(content: &[u8]) -> IronResult<Response> {
+    plain(content).map(|r| r.set(Header(ContentType(Mime(TopLevel::Text, SubLevel::Html, Vec::new())))))
+}
+
+fn from_path(path: &Path) -> IronResult<Response> {
+    Ok(Response::with((status::Ok, path)))
 }
 
 fn serve(req: &mut Request) -> IronResult<Response> {
-    let (root, filter_str, max_size) = {
-        let o = req.get::<Read<OptCarrier, Arc<Options>>>().unwrap();
-        (o.root.clone().unwrap_or_else(|| os::getcwd().ok().unwrap()),
-         o.filter.clone(),
-         o.max_size)
-    };
+    let (filter_str, max_size) = (
+        ARGS.flag_filter.clone(),
+        ARGS.flag_size
+    );
 
-    let (template, mime_types) = {
-        let s = req.get::<Read<StateCarrier, Arc<State>>>().unwrap();
-        (s.template.clone(),
-         s.mime_types.clone())
-    };
+    let (template, root, mime_types) = (
+        STATE.template.clone(),
+        STATE.root.clone().unwrap_or_else(|| env::current_dir().ok().unwrap()),
+        STATE.mime_types.clone()
+    );
 
     let mut path = root.clone();
-    for part in req.url.path.iter() { path.push(part[]) }
-    if !path.exists() { return html("Well, no... We don't have that today."); }
+    for part in req.url.path.iter() { path.push(part) }
+    if !path.exists() { return html(b"Well, no... We don't have that today."); }
 
-    let filter = filter_str.and_then(|s| Regex::new(s[]).ok());
+    let filter = filter_str.and_then(|s| Regex::new(&s).ok());
 
-    if path.is_file() && root.is_ancestor_of(&path) {
-        let stat = path.stat();
-        if stat.as_ref().ok().is_some() && max_size.is_some() && stat.ok().unwrap().size > max_size.unwrap() {
-            return html("I'm afraid, I'm too lazy to serve the requested file. It's pretty big...")
+    if path.is_file() && path.starts_with(&root) {
+        let stat = path.metadata();
+        if stat.as_ref().ok().is_some() && max_size.is_some() && stat.ok().unwrap().len() > max_size.unwrap() {
+            return html(b"I'm afraid, I'm too lazy to serve the requested file. It's pretty big...")
         }
-        let content = match File::open(&path).read_to_end() {
+        /*let content = match File::open(&path).read_to_end() {
             Ok(s) => s,
             Err(e) => return html(e.desc)
-        };
+        };*/
 
-        if filter.as_ref().map_or(false, |f| !f.is_match(path.filename_str().unwrap())) {
-            return html("I don't think you're allowed to do this.");
+        if filter.as_ref().map_or(false, |f| !f.is_match(path.file_name().unwrap().to_string_lossy().borrow())) {
+            return html(b"I don't think you're allowed to do this.");
         }
-        let mime: Option<iron::mime::Mime> = path.extension_str()
-            .map_or(None, |e| mime_types.get_mime_type(e))
-            .map_or(None, |m| from_str(m));
+        let mime: Option<iron::mime::Mime> = path.extension().map(|s| s.to_string_lossy().to_owned())
+            .map_or(None, |e| mime_types.get_mime_type(e.borrow()))
+            .and_then(|m| m.parse().ok());
         if mime.as_ref().is_some() {
-            plain(content[]).map(|r| r.set(ContentType((*mime.as_ref().unwrap()).clone())))
+            from_path(&path).map(|r| r.set(Header(ContentType((*mime.as_ref().unwrap()).clone()))))
         } else {
-            plain(content[])
+            from_path(path.as_path())
         }
     } else {
-        let mut content = match fs::readdir(&path) {
-            Ok(s) => s,
-            Err(e) => return html(e.desc)
+        let mut content: Vec<PathBuf> = match fs::read_dir(&path) {
+            Ok(s) => s.filter_map(Result::ok).map(|s| s.path()).collect(),
+            Err(e) => return html(e.description().as_bytes())
         };
-        content.sort_by(|a, b| a.filename_str().unwrap().cmp(b.filename_str().unwrap()));
-        html(render(template, root, path, content, filter))
+        content.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
+        let mut out = Vec::with_capacity(DEF_LEN);
+        render(&mut out, template, root, path, content, filter);
+        html(&out)
     }
-}
-
-fn print_usage(program: &str, opts: &[OptGroup]) {
-    println!("Usage: {} [options]\n", program);
-    println!("{}", usage(BRIEF, opts));
 }
 
 fn main() {
-    let args: Vec<String> = os::args();
-    let program = args[0].clone();
-    let opts = &[
-        optopt("c", "config", "set config file name", "NAME"),
-        optopt("a", "address", "the address to bind to", "HOST"),
-        optopt("p", "port", "the port to serve", "PORT"),
-        optopt("r", "root", "the uppermost directory to serve", "ROOT"),
-        optopt("f", "filter", "a regular expression to filter the filenames", "REGEX"),
-        optopt("s", "size", "the maximum size of a file that will be served", "BYTES"),
-        optopt("t", "template", "a mustache template to use for rendering", "TEMPLATE"),
-        optopt("", "threads", "amount of threads to use for serving", "THREADS"),
-        optflag("", "fork", "fork sersve into a background process"),
-        optflag("h", "help", "print this help menu")
-    ];
-    let matches = match getopts(args.tail(), opts) {
-        Ok(m) => { m }
-        Err(f) => {
-            println!("{}", f.to_string());
-            return;
-        }
-    };
-
-    if matches.opt_present("h") {
-        print_usage(program[], opts);
-        return;
-    }
-
-    let mut options: Options = Default::default();
-
-    matches.opt_str("c").map(|conf_file| {
-        let conf_file = File::open(&Path::new(conf_file));
-        conf_file.as_ref().map_err::<()>(|e| panic!("{}", e.desc)).unwrap();
-
-        // cannot if-let, because typesafe errors are helpful
-        let json = match json::from_reader(&mut conf_file.ok().unwrap()) {
-            Ok(Json::Object(o)) => o,
-            _ => panic!("Invalid configuration file. Doesn't contain top-level object.")
-        };
-        options.host = match json.get("address") {
-            Some(&Json::String(ref s)) => Some((*s).clone()),
-            None => None,
-            _ => panic!("Invalid configuration file. `address` field must be a string.")
-        };
-        options.port = match json.get("port") {
-            Some(&Json::U64(u)) => Some(u as u16),
-            None => None,
-            _ => panic!("Invalid configuration file. `port` field must be an unsigned integer.")
-        };
-        options.root = match json.get("root") {
-            Some(&Json::String(ref s)) => Some(Path::new((*s).clone())),
-            None => None,
-            _ => panic!("Invalid configuration file. `root` field must be a string.")
-        };
-        options.filter = match json.get("filter") {
-            Some(&Json::String(ref s)) => Some((*s).clone()),
-            None => None,
-            _ => panic!("Invalid configuration file. `filter` field must be a string.")
-        };
-        options.max_size = match json.get("size") {
-            Some(&Json::U64(u)) => Some(u),
-            None => None,
-            _ => panic!("Invalid configuration file. `size` field must be an unsigned integer.")
-        };
-        options.template = match json.get("template") {
-            Some(&Json::String(ref s)) => Some((*s).clone()),
-            None => None,
-            _ => panic!("Invalid configuration file. `template` field must be a string.")
-        };
-        options.fork = match json.get("fork") {
-            Some(&Json::Boolean(b)) => Some(b),
-            None => None,
-            _ => panic!("Invalid configuration file. `fork` field must be a boolean")
-        };
-        options.threads = match json.get("threads") {
-            Some(&Json::U64(u)) => Some(u as uint),
-            None => None,
-            _ => panic!("Invalid configuration file. `threads` field must be a string.")
-        }
-    });
-
     let (host, port, threads) = {
-        options.host = matches.opt_str("a").or(options.host);
-        options.port = matches.opt_str("p").and_then(|p| str::from_str(p[])).or(options.port);
-        options.root = matches.opt_str("r").and_then(|p| Path::new_opt(p)).or(options.root);
-        options.filter = matches.opt_str("f").or(options.filter);
-        options.max_size = matches.opt_str("s").and_then(|s| str::from_str(s[])).or(options.max_size);
-        options.template = matches.opt_str("t").or(options.template);
-        options.threads = matches.opt_str("threads").and_then(|s| str::from_str(s[])).or(options.threads);
-        (options.host.clone().unwrap_or(HOST.into_string()),
-         options.port.clone().unwrap_or(PORT),
-         options.threads.unwrap_or(os::num_cpus()))
+        (ARGS.flag_address.clone().unwrap_or(HOST.into()),
+         ARGS.flag_port.clone().unwrap_or(PORT),
+         ARGS.flag_threads.unwrap_or(num_cpus::get()))
     };
 
-    if options.fork.unwrap_or(false) || matches.opt_present("fork") {
+    if ARGS.flag_fork {
         fork();
     }
 
-    let template = mustache::compile_str(options.template.clone().unwrap_or(OPT_TEMPLATE.into_string())[]);
-    let state = State {
-        template: template,
-        mime_types: Arc::new(Types::new().ok().unwrap())
-    };
-
-    let mut chain = ChainBuilder::new(serve);
-    chain.link(Read::<OptCarrier, Arc<Options>>::both(Arc::new(options)));
-    chain.link(Read::<StateCarrier, Arc<State>>::both(Arc::new(state)));
-    match Iron::new(chain).listen_with((host[], port), threads) {
+    match Iron::new(serve).listen_with((host.as_ref(), port), threads, iron::Protocol::Http) {
         Ok(_) => (),
-        Err(e) => println!("I'm sorry, I failed you.\nError: {}", e)
+        Err(e) => println!("I'm sorry, I failed you.\nError: {:?}", e)
     }
 }
