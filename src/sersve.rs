@@ -228,7 +228,7 @@ fn plain(content: &[u8]) -> IronResult<Response> {
 }
 
 fn html(content: &[u8]) -> IronResult<Response> {
-    plain(content).map(|r| r.set(Header(ContentType(Mime(TopLevel::Text, SubLevel::Html, Vec::new())))))
+    plain(content).map(|r| r.set(Header(ContentType(Mime(TopLevel::Text, SubLevel::Html, vec![])))))
 }
 
 fn from_path(path: &Path) -> IronResult<Response> {
@@ -249,24 +249,24 @@ fn serve(req: &mut Request) -> IronResult<Response> {
 
     let mut path = root.clone();
     for part in req.url.path.iter() { path.push(part) }
-    if !path.exists() { return html(b"Well, no... We don't have that today."); }
+    if !path.exists() { return html(format!("Error, `{}` does not exist.", path.display()).as_bytes()); }
 
     let filter = filter_str.and_then(|s| Regex::new(&s).ok());
 
     if path.is_file() && path.starts_with(&root) {
         let stat = path.metadata();
-        if stat.as_ref().ok().is_some() && max_size.is_some() && stat.ok().unwrap().len() > max_size.unwrap() {
+        if stat.as_ref().ok().is_some()
+            && max_size.is_some()
+            && stat.ok().unwrap().len() > max_size.unwrap() {
             return html(b"I'm afraid, I'm too lazy to serve the requested file. It's pretty big...")
         }
-        /*let content = match File::open(&path).read_to_end() {
-            Ok(s) => s,
-            Err(e) => return html(e.desc)
-        };*/
 
-        if filter.as_ref().map_or(false, |f| !f.is_match(path.file_name().unwrap().to_string_lossy().borrow())) {
+        if filter.as_ref().map_or(false,
+                  |f| !f.is_match(path.file_name().unwrap().to_string_lossy().borrow())) {
             return html(b"I don't think you're allowed to do this.");
         }
-        let mime: Option<iron::mime::Mime> = path.extension().map(|s| s.to_string_lossy().to_owned())
+        let mime: Option<iron::mime::Mime> = path.extension()
+            .map(|s| s.to_string_lossy().to_owned())
             .map_or(None, |e| mime_types.get_mime_type(e.borrow()))
             .and_then(|m| m.parse().ok());
         if mime.as_ref().is_some() {
@@ -293,9 +293,7 @@ fn main() {
          ARGS.flag_threads.unwrap_or(num_cpus::get()))
     };
 
-    if ARGS.flag_fork {
-        fork();
-    }
+    if ARGS.flag_fork { fork() }
 
     match Iron::new(serve).listen_with((host.as_ref(), port), threads, iron::Protocol::Http) {
         Ok(_) => (),
