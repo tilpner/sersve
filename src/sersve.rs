@@ -236,6 +236,8 @@ fn from_path(path: &Path) -> IronResult<Response> {
 }
 
 fn serve(req: &mut Request) -> IronResult<Response> {
+    req.headers.set_raw("Connection", vec![b"close".to_vec()]);
+
     let (filter_str, max_size) = (
         ARGS.flag_filter.clone(),
         ARGS.flag_size
@@ -277,7 +279,7 @@ fn serve(req: &mut Request) -> IronResult<Response> {
     } else {
         let mut content: Vec<PathBuf> = match fs::read_dir(&path) {
             Ok(s) => s.filter_map(Result::ok).map(|s| s.path()).collect(),
-            Err(e) => return html(e.description().as_bytes())
+            Err(e) => return html(format!("Error: {}", e.description()).as_bytes())
         };
         content.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
         let mut out = Vec::with_capacity(DEF_LEN);
