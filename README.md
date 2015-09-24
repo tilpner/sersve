@@ -1,17 +1,15 @@
-sersve [![Build Status](https://travis-ci.org/hoeppnertill/sersve.svg)](https://travis-ci.org/hoeppnertill/sersve)
+sersve [![Build Status](https://travis-ci.org/tilpner/sersve.svg)](https://travis-ci.org/hoeppnertill/sersve)
 ======
 
 A simple directory server. It works for my own purposes so far, but feel free to try or contribute.
 
-[Relevant blog article.](http://till.hoeppner.ws/2014/11/30/Introducing-sersve-a-directory-server-in-Rust-with-Iron/)
-
 ## Build
 
 ```bash
-git clone https://github.com/hoeppnertill/sersve.git
+git clone https://github.com/tilpner/sersve.git
 cd sersve
 cargo build --release # leave off --release if impatient
-target/release/sersve # target/sersve respectively
+target/release/sersve # target/debug/sersve respectively
 # You can now visit `localhost:8080` in a browser
 ```
 
