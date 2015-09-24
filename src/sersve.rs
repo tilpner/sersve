@@ -12,6 +12,8 @@ extern crate serde;
 extern crate lazy_static;
 extern crate docopt;
 extern crate rustc_serialize;
+extern crate env_logger;
+extern crate serde_json;
 
 use std::{ env, fs, process };
 use std::path::{ Path, PathBuf };
@@ -25,7 +27,7 @@ use regex::Regex;
 
 use conduit_mime_types::Types;
 
-use serde::json::{ self, Value };
+use serde_json::Value;
 
 use iron::prelude::*;
 use iron::status;
@@ -101,7 +103,7 @@ lazy_static! {
                             .unwrap();
 
             // cannot if-let, because typesafe errors are helpful
-            let json = match json::from_str(&conf) {
+            let json = match serde_json::from_str(&conf) {
                 Ok(Value::Object(o)) => o,
                 _ => panic!("Invalid configuration file. Doesn't contain valid top-level object.")
             };
@@ -289,6 +291,7 @@ fn serve(req: &mut Request) -> IronResult<Response> {
 }
 
 fn main() {
+    env_logger::init().ok().expect("Unable to initialise env_logger.");
     let (host, port, threads) = {
         (ARGS.flag_address.clone().unwrap_or(HOST.into()),
          ARGS.flag_port.clone().unwrap_or(PORT),

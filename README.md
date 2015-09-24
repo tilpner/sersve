@@ -18,18 +18,20 @@ target/release/sersve # target/sersve respectively
 ## Options
 
 ```
-Usage: target/release/sersve [options]
-A minimal directory server, written in Rust with Iron.
+A minimal static file server, written in Rust with Iron.
+Usage: sersve [options]
 Options:
-    -c --config NAME    set config file name
-    -a --address HOST   the address to bind to
-    -p --port PORT      the port to serve
-    -r --root ROOT      the uppermost directory to serve
-    -f --filter REGEX   a regular expression to filter the filenames
-    -s --size BYTES     the maximum size of a file that will be served
-    -t --template TEMPLATE
-                        a mustache template to use for rendering
-    -h --help           print this help menu
+    -h, --help                  Show this message.
+    -v, --version               Show the version of sersve (duh).
+    -c, --config FILE           Provide a configuration file (JSON).
+    -a, --address HOST          The address to bind to.
+    -p, --port PORT             The port to serve.
+    -r, --root ROOT             The uppermost directory to serve.
+    -f, --filter REGEX          A regular expression to filter the filenames.
+    -s, --size BYTES            The maximum size of a file that will be served.
+    -t, --template TEMPLATE     A Mustache template to use for rendering.
+    --threads THREADS           Amount of threads to use for serving.
+    --fork                      Fork sersve into a background process.
 ```
 
 ## Configuration format
